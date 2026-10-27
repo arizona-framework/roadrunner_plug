@@ -14,14 +14,17 @@ defmodule Roadrunner.Plug.AdapterTest do
     })
   end
 
-  # What `URI.parse/1` makes of a Host value.
+  # What `URI.parse/1` makes of a Host value, an IPv6 literal kept in its
+  # brackets as the conn's `host` needs for `Plug.Conn.request_url/1`.
   defp uri_host_port(host, default) do
     case URI.parse("//" <> host) do
-      %URI{host: h, port: nil} when is_binary(h) -> {h, default}
-      %URI{host: h, port: p} when is_binary(h) -> {h, p}
+      %URI{host: h, port: nil} when is_binary(h) -> {bracketed(h), default}
+      %URI{host: h, port: p} when is_binary(h) -> {bracketed(h), p}
       _ -> {host, default}
     end
   end
+
+  defp bracketed(host), do: if(String.contains?(host, ":"), do: "[#{host}]", else: host)
 
   test "builds the conn from the request" do
     conn = conn([{"host", "example.com:4000"}, {"x-a", "1"}])
