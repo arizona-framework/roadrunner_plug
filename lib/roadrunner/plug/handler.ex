@@ -24,10 +24,14 @@ defmodule Roadrunner.Plug.Handler do
     catch
       kind, reason ->
         # As Plug's other servers: answer with the exception's status
-        # (`Plug.Exception`, e.g. 413 or 400) when nothing went out yet, then
-        # raise on, so roadrunner logs it and closes the connection.
-        :ok = send_error(kind, reason, req)
-        :erlang.raise(kind, reason, __STACKTRACE__)
+        # (`Plug.Exception`, e.g. 413 or 400) when nothing went out yet. A
+        # 5xx raises on, so roadrunner logs it; a 4xx is the client's, so
+        # the request stops quietly (`{:shutdown, _}`). Either way the
+        # connection closes, as the body's state is unknown.
+        case send_error(kind, reason, req) do
+          status when status >= 500 -> :erlang.raise(kind, reason, __STACKTRACE__)
+          status -> exit({:shutdown, {:plug_status, status}})
+        end
     else
       conn ->
         :ok = maybe_upgrade(conn)
@@ -36,10 +40,12 @@ defmodule Roadrunner.Plug.Handler do
     end
   end
 
+  # The exception's Plug status, sent unless the plug already answered.
   defp send_error(kind, reason, req) do
     case Exception.normalize(kind, reason) do
-      %Plug.Conn.WrapperError{conn: %Plug.Conn{state: state}} when state not in [:unset, :set] ->
-        :ok
+      %Plug.Conn.WrapperError{conn: %Plug.Conn{state: state}, reason: inner}
+      when state not in [:unset, :set] ->
+        Plug.Exception.status(inner)
 
       %Plug.Conn.WrapperError{reason: inner} ->
         reply_status(Plug.Exception.status(inner), req)
@@ -52,9 +58,9 @@ defmodule Roadrunner.Plug.Handler do
   # Nothing to send if the plug already did (a raise after a response).
   defp reply_status(status, req) do
     _ = :roadrunner_send.reply(status, [{"content-length", "0"}], "", req)
-    :ok
+    status
   catch
-    :error, :already_sent -> :ok
+    :error, :already_sent -> status
   end
 
   defp maybe_upgrade(%Plug.Conn{state: :upgraded} = conn), do: Adapter.upgrade(conn)
