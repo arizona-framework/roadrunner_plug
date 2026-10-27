@@ -32,7 +32,14 @@ defmodule Roadrunner.Plug.MixProject do
       {:roadrunner, "~> 0.12"},
       {:plug, "~> 1.16"},
       {:websock, "~> 0.5"},
-      {:phoenix, "~> 1.7", only: :test},
+      # Phoenix stays out of this app's runtime applications, and the tests
+      # start it: WebSockAdapter lists roadrunner_plug as an optional
+      # dependency, so starting Phoenix from here would start this app
+      # inside itself.
+      {:phoenix, "~> 1.7", only: :test, runtime: false},
+      # Until WebSockAdapter releases its Roadrunner support.
+      {:websock_adapter,
+       github: "phoenixframework/websock_adapter", only: :test, runtime: false, override: true},
       {:jason, "~> 1.4", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
     ]
