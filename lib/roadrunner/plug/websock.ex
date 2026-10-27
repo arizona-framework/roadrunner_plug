@@ -46,17 +46,23 @@ defmodule Roadrunner.Plug.WebSock do
   end
 
   @impl true
-  def handle_info({__MODULE__, :stop, code, reason}, {websock, state}) do
-    # The close a `{:stop, _, _, messages, _}` asked for, after its messages.
-    close(reason, code, websock, state)
+  def handle_control(%{opcode: opcode, payload: data}, {websock, state}) do
+    # roadrunner already answered a ping; the handler only observes.
+    if function_exported?(websock, :handle_control, 2) do
+      result(websock.handle_control({data, opcode: opcode}, state), websock)
+    else
+      {:ok, {websock, state}}
+    end
   end
 
+  @impl true
   def handle_info(message, {websock, state}) do
     result(websock.handle_info(message, state), websock)
   end
 
   @impl true
   def handle_drain(_deadline, {websock, state}) do
+    # The listener is draining: `terminate/2` gets `:shutdown`.
     {:close, 1001, "", {websock, state}}
   end
 
@@ -70,35 +76,33 @@ defmodule Roadrunner.Plug.WebSock do
     if function_exported?(websock, :terminate, 2), do: websock.terminate(reason, state)
   end
 
+  # The close codes for a stop without one follow Bandit's: 1000 for a
+  # normal stop, 1012 (service restart) for `{:shutdown, :restart}`, 1011
+  # (internal error) otherwise.
   defp result({:ok, state}, websock), do: {:ok, {websock, state}}
   defp result({:push, messages, state}, websock), do: {:reply, frames(messages), {websock, state}}
 
   defp result({:reply, _status, messages, state}, websock),
     do: {:reply, frames(messages), {websock, state}}
 
-  # 1012 (service restart) is not a code roadrunner sends; 1001 ("going
-  # away") is RFC 6455's for a server going down.
   defp result({:stop, {:shutdown, :restart}, state}, websock),
-    do: close(:normal, 1001, websock, state)
+    do: close(:normal, 1012, [], websock, state)
 
   defp result({:stop, {:shutdown, :disconnected}, state}, websock),
-    do: close(:normal, 1000, websock, state)
+    do: close(:normal, 1000, [], websock, state)
 
-  defp result({:stop, :normal, state}, websock), do: close(:normal, 1000, websock, state)
-  defp result({:stop, reason, state}, websock), do: close(reason, 1011, websock, state)
-  defp result({:stop, reason, detail, state}, websock), do: close(reason, detail, websock, state)
+  defp result({:stop, :normal, state}, websock), do: close(:normal, 1000, [], websock, state)
+  defp result({:stop, reason, state}, websock), do: close(reason, 1011, [], websock, state)
 
-  defp result({:stop, reason, detail, messages, state}, websock) do
-    # roadrunner closes after a callback's frames only in a later event: ask
-    # for it now, so the frames go out first.
+  defp result({:stop, reason, detail, state}, websock),
+    do: close(reason, detail, [], websock, state)
+
+  defp result({:stop, reason, detail, messages, state}, websock),
+    do: close(reason, detail, frames(messages), websock, state)
+
+  defp close(reason, detail, frames, websock, state) do
     {code, text} = close_detail(detail)
-    send(self(), {__MODULE__, :stop, {code, text}, reason})
-    {:reply, frames(messages), {websock, state}}
-  end
-
-  defp close(reason, detail, websock, state) do
-    {code, text} = close_detail(detail)
-    {:close, code, text, stop_state(reason, websock, state)}
+    {:close, code, text, frames, stop_state(reason, websock, state)}
   end
 
   defp stop_state(:normal, websock, state), do: {websock, state}

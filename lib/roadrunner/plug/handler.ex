@@ -18,9 +18,42 @@ defmodule Roadrunner.Plug.Handler do
   @spec run(:roadrunner_req.request()) :: :roadrunner_req.request()
   def run(req) do
     {plug, opts} = :roadrunner_req.state(req)
-    conn = req |> Adapter.conn() |> plug.call(opts) |> maybe_send()
-    :ok = Adapter.flush_sent()
-    Adapter.request(conn)
+
+    try do
+      req |> Adapter.conn() |> plug.call(opts) |> maybe_send()
+    catch
+      kind, reason ->
+        # As Plug's other servers: answer with the exception's status
+        # (`Plug.Exception`, e.g. 413 or 400) when nothing went out yet, then
+        # raise on, so roadrunner logs it and closes the connection.
+        :ok = send_error(kind, reason, req)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    else
+      conn ->
+        :ok = Adapter.flush_sent()
+        Adapter.request(conn)
+    end
+  end
+
+  defp send_error(kind, reason, req) do
+    case Exception.normalize(kind, reason) do
+      %Plug.Conn.WrapperError{conn: %Plug.Conn{state: state}} when state not in [:unset, :set] ->
+        :ok
+
+      %Plug.Conn.WrapperError{reason: inner} ->
+        reply_status(Plug.Exception.status(inner), req)
+
+      exception ->
+        reply_status(Plug.Exception.status(exception), req)
+    end
+  end
+
+  # Nothing to send if the plug already did (a raise after a response).
+  defp reply_status(status, req) do
+    _ = :roadrunner_send.reply(status, [{"content-length", "0"}], "", req)
+    :ok
+  catch
+    :error, :already_sent -> :ok
   end
 
   # As Plug's other servers: a conn the plug set but did not send goes out

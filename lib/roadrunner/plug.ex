@@ -20,8 +20,9 @@ defmodule Roadrunner.Plug do
       plug module).
     * `:roadrunner` - any other `:roadrunner_listener` option, as a map
       (`protocols`, `ws`, `max_clients`, ...). Request bodies are read on
-      demand (`body_buffering: :manual`), so `Plug.Parsers` sets their
-      limits.
+      demand (`body_buffering: :manual`) with no listener-wide size cap, so
+      `Plug.Parsers` (or the plug reading the body) sets their limits; set
+      `max_content_length` here to cap every request anyway.
 
   With `scheme: :https`, the TLS options are either `:tls` (`:ssl` server
   options as given) or Plug's (`:keyfile`, `:certfile`, `:key`, `:cert`,
@@ -51,6 +52,9 @@ defmodule Roadrunner.Plug do
     Keyword.get_lazy(opts, :name, fn -> Module.concat(__MODULE__, plug_module(opts)) end)
   end
 
+  # Plug leaves body limits to `Plug.Parsers` and `read_body/2`.
+  @no_body_cap 0x7FFFFFFFFFFFFFFF
+
   @own_keys [:plug, :port, :ip, :scheme, :tls, :name, :roadrunner, :display_plug]
 
   @doc false
@@ -59,7 +63,8 @@ defmodule Roadrunner.Plug do
     %{
       port: Keyword.get(opts, :port, 4000),
       routes: {Roadrunner.Plug.Handler, plug(opts)},
-      body_buffering: :manual
+      body_buffering: :manual,
+      max_content_length: @no_body_cap
     }
     |> put_opt(opts, :ip)
     |> put_tls(Keyword.get(opts, :scheme, :http), opts)

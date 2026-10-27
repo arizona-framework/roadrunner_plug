@@ -35,6 +35,25 @@ defmodule Roadrunner.PlugTest do
     assert {200, _, "some body"} = post(port, "/echo", "some body")
   end
 
+  test "a body over roadrunner's default 10 MB cap reaches the plug", %{port: port} do
+    size = 11 * 1024 * 1024
+    assert {200, _, body} = post(port, "/size", :binary.copy("a", size))
+    assert body == Integer.to_string(size)
+  end
+
+  @tag :capture_log
+  test "an explicit max_content_length still caps the body" do
+    name = :"roadrunner_plug_capped_#{System.unique_integer([:positive])}"
+
+    start_supervised!(
+      {Roadrunner.Plug,
+       plug: TestPlug, port: 0, name: name, roadrunner: %{max_content_length: 4}},
+      id: :capped
+    )
+
+    assert {413, _, _} = post(Roadrunner.Plug.port(name), "/size", "too long")
+  end
+
   test "reads the body in pieces of the asked length", %{port: port} do
     assert {200, _, "3"} = post(port, "/pieces", "0123456789")
   end
@@ -118,6 +137,20 @@ defmodule Roadrunner.PlugTest do
       assert_receive {:terminated, {:error, :oops}}
     end
 
+    test "a restart stop closes 1012", %{port: port} do
+      sock = ws_connect(port)
+      :ok = :gen_tcp.send(sock, masked(0x81, "restart"))
+      assert {:close, <<1012::16>>} = recv_frame(sock)
+      assert_receive {:terminated, :normal}
+    end
+
+    test "handle_control sees a ping after the server's pong", %{port: port} do
+      sock = ws_connect(port)
+      :ok = :gen_tcp.send(sock, masked(0x89, "p"))
+      assert {:pong, "p"} = recv_frame(sock)
+      assert_receive {:control, :ping, "p"}
+    end
+
     test "a client close reports remote", %{port: port} do
       sock = ws_connect(port)
       :ok = :gen_tcp.send(sock, masked(0x88, <<1000::16>>))
@@ -190,6 +223,7 @@ defmodule Roadrunner.PlugTest do
 
   defp opcode(0x1), do: :text
   defp opcode(0x8), do: :close
+  defp opcode(0xA), do: :pong
 
   defp masked(op, payload) do
     key = <<1, 2, 3, 4>>

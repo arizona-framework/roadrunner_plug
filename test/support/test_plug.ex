@@ -16,6 +16,11 @@ defmodule Roadrunner.Plug.TestPlug do
     send_resp(conn, 200, body)
   end
 
+  def call(%{path_info: ["size"]} = conn, _opts) do
+    {:ok, body, conn} = read_all(conn, "")
+    send_resp(conn, 200, Integer.to_string(byte_size(body)))
+  end
+
   def call(%{path_info: ["pieces"]} = conn, _opts) do
     # 4 bytes per read: the adapter hands the body over in pieces.
     {:ok, reads, conn} = count_reads(conn, 0)
@@ -82,7 +87,7 @@ defmodule Roadrunner.Plug.TestPlug do
   end
 
   defp read_all(conn, acc) do
-    case read_body(conn) do
+    case read_body(conn, length: 64_000_000) do
       {:ok, data, conn} -> {:ok, acc <> data, conn}
       {:more, data, conn} -> read_all(conn, acc <> data)
     end
@@ -115,11 +120,21 @@ defmodule Roadrunner.Plug.TestWebSock do
     {:stop, :normal, {1000, "bye"}, [{:text, "last"}], report}
   end
 
+  def handle_in({"restart", opcode: :text}, report) do
+    {:stop, {:shutdown, :restart}, report}
+  end
+
   def handle_in({"crash-stop", opcode: :text}, report) do
     {:stop, :oops, report}
   end
 
   def handle_in({data, opcode: :text}, report), do: {:push, {:text, data}, report}
+
+  @impl true
+  def handle_control({data, opcode: opcode}, report) do
+    send(report, {:control, opcode, data})
+    {:ok, report}
+  end
 
   @impl true
   def handle_info({:tell, data}, report), do: {:push, {:text, data}, report}

@@ -61,7 +61,7 @@ defmodule Roadrunner.Plug.Adapter do
 
   @impl true
   def send_resp(%{req: req} = payload, status, headers, body) do
-    _ = :roadrunner_send.reply(status, headers, body, req)
+    _ = :roadrunner_send.reply(status, wire_headers(headers, req), body, req)
     {:ok, nil, payload}
   end
 
@@ -73,9 +73,22 @@ defmodule Roadrunner.Plug.Adapter do
         n when is_integer(n) -> n
       end
 
-    headers = with_content_length(headers, length)
+    headers = headers |> with_content_length(length) |> wire_headers(req)
     _ = :roadrunner_send.file(status, headers, {path, offset, length}, req)
     {:ok, nil, payload}
+  end
+
+  # HTTP/2 and HTTP/3 need lowercase field names (RFC 9113 §8.2.1, RFC 9114
+  # §4.2), which Plug only enforces in tests; HTTP/1.1 sends them as given.
+  # `ascii_lowercase/1` returns a lowercase name as is.
+  defp wire_headers(headers, req) do
+    case :roadrunner_req.version(req) do
+      {1, _minor} ->
+        headers
+
+      _http2_or_http3 ->
+        for {name, value} <- headers, do: {:roadrunner_bin.ascii_lowercase(name), value}
+    end
   end
 
   defp with_content_length(headers, length) do
@@ -87,7 +100,7 @@ defmodule Roadrunner.Plug.Adapter do
 
   @impl true
   def send_chunked(%{req: req} = payload, status, headers) do
-    case :roadrunner_send.stream(status, headers, req) do
+    case :roadrunner_send.stream(status, wire_headers(headers, req), req) do
       {:ok, send} -> {:ok, nil, %{payload | send: send}}
       {:error, _reason} -> {:ok, nil, payload}
     end
@@ -104,6 +117,8 @@ defmodule Roadrunner.Plug.Adapter do
     case :roadrunner_req.read_body(req, %{length: length}) do
       {:ok, data, req} -> {:ok, IO.iodata_to_binary(data), %{payload | req: req}}
       {:more, data, req} -> {:more, IO.iodata_to_binary(data), %{payload | req: req}}
+      # Over the listener's `max_content_length`: Plug's own "too large".
+      {:error, :content_length_too_large} -> raise Plug.Parsers.RequestTooLargeError
       {:error, _reason} = error -> error
     end
   end
