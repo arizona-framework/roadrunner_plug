@@ -129,6 +129,18 @@ defmodule Roadrunner.Plug.TestWebSock do
     {:stop, {:shutdown, :restart}, report}
   end
 
+  def handle_in({"bad-code", opcode: :text}, report) do
+    {:stop, :normal, 1005, report}
+  end
+
+  def handle_in({"long-reason", opcode: :text}, report) do
+    {:stop, :normal, {1000, String.duplicate("é", 100)}, report}
+  end
+
+  def handle_in({"raise", opcode: :text}, _report) do
+    raise "boom"
+  end
+
   def handle_in({"crash-stop", opcode: :text}, report) do
     {:stop, :oops, report}
   end

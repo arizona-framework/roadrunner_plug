@@ -151,6 +151,43 @@ defmodule Roadrunner.PlugTest do
       assert_receive {:control, :ping, "p"}
     end
 
+    test "an unsendable close code becomes 1000 for a normal stop", %{port: port} do
+      sock = ws_connect(port)
+      :ok = :gen_tcp.send(sock, masked(0x81, "bad-code"))
+      assert {:close, <<1000::16>>} = recv_frame(sock)
+      assert_receive {:terminated, :normal}
+    end
+
+    test "a long close reason is cut to fit, at a character boundary", %{port: port} do
+      sock = ws_connect(port)
+      :ok = :gen_tcp.send(sock, masked(0x81, "long-reason"))
+      assert {:close, <<1000::16, reason::binary>>} = recv_frame(sock)
+      assert byte_size(reason) <= 123
+      assert String.valid?(reason)
+    end
+
+    @tag :capture_log
+    test "a raising handler closes 1011 and gets terminate", %{port: port} do
+      sock = ws_connect(port)
+      :ok = :gen_tcp.send(sock, masked(0x81, "raise"))
+      assert {:close, <<1011::16>>} = recv_frame(sock)
+      assert_receive {:terminated, {:error, %RuntimeError{message: "boom"}}}
+    end
+
+    test "compression is off unless asked for", %{port: port} do
+      {:ok, sock} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
+
+      :ok =
+        :gen_tcp.send(sock, [
+          "GET /ws HTTP/1.1\r\nhost: x\r\nupgrade: websocket\r\nconnection: Upgrade\r\n",
+          "sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\nsec-websocket-version: 13\r\n",
+          "sec-websocket-extensions: permessage-deflate\r\n\r\n"
+        ])
+
+      {:ok, head} = recv_head(sock, "")
+      refute head =~ "sec-websocket-extensions"
+    end
+
     test "a client close reports remote", %{port: port} do
       sock = ws_connect(port)
       :ok = :gen_tcp.send(sock, masked(0x88, <<1000::16>>))
@@ -229,5 +266,16 @@ defmodule Roadrunner.PlugTest do
     key = <<1, 2, 3, 4>>
     mask = :binary.copy(key, div(byte_size(payload), 4) + 1) |> binary_part(0, byte_size(payload))
     <<op, 0x80 + byte_size(payload), key::binary, :crypto.exor(payload, mask)::binary>>
+  end
+
+  describe "WebSock upgrade options" do
+    test "defaults to WebSockAdapter's: no compression, a 60 s idle timeout" do
+      assert Roadrunner.Plug.WebSock.upgrade_opts([]) == %{compress: false, idle_timeout: 60_000}
+    end
+
+    test "max_frame_size also sets the message cap" do
+      assert %{max_frame_size: 100, max_message_size: 100} =
+               Roadrunner.Plug.WebSock.upgrade_opts(max_frame_size: 100)
+    end
   end
 end

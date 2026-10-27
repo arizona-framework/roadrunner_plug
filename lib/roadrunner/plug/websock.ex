@@ -7,10 +7,20 @@ defmodule Roadrunner.Plug.WebSock do
 
   @behaviour :roadrunner_ws_handler
 
+  require Logger
+
+  # WebSockAdapter's documented defaults, which the listener's would
+  # otherwise replace: no compression, a 60 s idle timeout.
+  @defaults %{compress: false, idle_timeout: 60_000}
+
+  # The longest close reason a close frame carries: a control frame's 125
+  # payload bytes less the 2-byte code (RFC 6455 §5.5).
+  @max_close_reason 123
+
   @doc "WebSock upgrade options as roadrunner's (`:roadrunner_ws_handler.upgrade_opts/0`)."
   @spec upgrade_opts(keyword()) :: map()
   def upgrade_opts(opts) do
-    Enum.reduce(opts, %{}, fn
+    Enum.reduce(opts, @defaults, fn
       {:timeout, :infinity}, acc ->
         Map.put(acc, :idle_timeout, :infinity)
 
@@ -21,8 +31,10 @@ defmodule Roadrunner.Plug.WebSock do
         Map.put(acc, :compress, compress)
 
       # WebSock's 0 means no cap; roadrunner's would refuse every frame.
+      # The message cap follows, so one frame of that size is a message
+      # roadrunner takes.
       {:max_frame_size, size}, acc when is_integer(size) and size > 0 ->
-        Map.put(acc, :max_frame_size, size)
+        Map.merge(acc, %{max_frame_size: size, max_message_size: size})
 
       {:fullsweep_after, n}, acc ->
         Map.put(acc, :fullsweep_after, n)
@@ -38,18 +50,18 @@ defmodule Roadrunner.Plug.WebSock do
   end
 
   @impl true
-  def init({websock, state}), do: result(websock.init(state), websock)
+  def init({websock, state}), do: call(websock, state, fn -> websock.init(state) end)
 
   @impl true
   def handle_frame(%{opcode: opcode, payload: data}, {websock, state}) do
-    result(websock.handle_in({data, opcode: opcode}, state), websock)
+    call(websock, state, fn -> websock.handle_in({data, opcode: opcode}, state) end)
   end
 
   @impl true
   def handle_control(%{opcode: opcode, payload: data}, {websock, state}) do
     # roadrunner already answered a ping; the handler only observes.
     if function_exported?(websock, :handle_control, 2) do
-      result(websock.handle_control({data, opcode: opcode}, state), websock)
+      call(websock, state, fn -> websock.handle_control({data, opcode: opcode}, state) end)
     else
       {:ok, {websock, state}}
     end
@@ -57,7 +69,7 @@ defmodule Roadrunner.Plug.WebSock do
 
   @impl true
   def handle_info(message, {websock, state}) do
-    result(websock.handle_info(message, state), websock)
+    call(websock, state, fn -> websock.handle_info(message, state) end)
   end
 
   @impl true
@@ -71,6 +83,22 @@ defmodule Roadrunner.Plug.WebSock do
 
   def terminate(_reason, {websock, state, stop_reason}),
     do: terminate_websock(websock, stop_reason, state)
+
+  # A callback that raises closes the session with 1011 and its
+  # `terminate/2` gets `{:error, reason}` with the last state it returned,
+  # as Bandit does; the crash is logged here, since the session goes on to
+  # close cleanly.
+  defp call(websock, state, callback) do
+    result(callback.(), websock)
+  catch
+    kind, reason ->
+      Logger.error(
+        "WebSock handler #{inspect(websock)} crashed: " <>
+          Exception.format(kind, reason, __STACKTRACE__)
+      )
+
+      {:close, 1011, "", {websock, state, {:error, reason}}}
+  end
 
   defp terminate_websock(websock, reason, state) do
     if function_exported?(websock, :terminate, 2), do: websock.terminate(reason, state)
@@ -102,7 +130,37 @@ defmodule Roadrunner.Plug.WebSock do
 
   defp close(reason, detail, frames, websock, state) do
     {code, text} = close_detail(detail)
-    {:close, code, text, frames, stop_state(reason, websock, state)}
+
+    {:close, sendable_code(code, reason), close_text(text), frames,
+     stop_state(reason, websock, state)}
+  end
+
+  # roadrunner refuses to send a code a server may not (1004-1006, 1015,
+  # unassigned ranges): one of those becomes 1000 for a normal stop, 1011
+  # otherwise, instead of crashing the session.
+  defp sendable_code(code, _reason)
+       when code in 1000..1003 or code in 1007..1014 or code in 3000..4999,
+       do: code
+
+  defp sendable_code(_code, :normal), do: 1000
+  defp sendable_code(_code, _reason), do: 1011
+
+  # A reason must be UTF-8 that fits the frame: an invalid one is dropped, a
+  # long one cut at a character boundary.
+  defp close_text(text) do
+    text = IO.iodata_to_binary(text)
+
+    cond do
+      not String.valid?(text) -> ""
+      byte_size(text) <= @max_close_reason -> text
+      true -> text |> binary_part(0, @max_close_reason) |> trim_partial_char()
+    end
+  end
+
+  defp trim_partial_char(text) do
+    if String.valid?(text),
+      do: text,
+      else: trim_partial_char(binary_part(text, 0, byte_size(text) - 1))
   end
 
   defp stop_state(:normal, websock, state), do: {websock, state}
