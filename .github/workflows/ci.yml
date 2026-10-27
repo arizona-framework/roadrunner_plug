@@ -1,0 +1,110 @@
+---
+# Lint runs the static checks once on the newest OTP and Elixir. Test runs
+# the suite on every supported OTP, each with an Elixir release built for it.
+name: CI
+
+"on":
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch: {}
+  merge_group:
+
+concurrency:
+  group: ${{github.workflow}}-${{github.ref}}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+
+    runs-on: ubuntu-26.04
+
+    env:
+      MIX_ENV: dev
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24
+        with:
+          otp-version: "29"
+          elixir-version: "1.20"
+
+      - name: Cache deps and _build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build
+          key: lint-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: lint-${{ runner.os }}-
+
+      - name: Get deps
+        run: mix deps.get
+
+      - name: Check unused deps in mix.lock
+        run: mix deps.unlock --check-unused
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Build docs
+        run: mix docs --warnings-as-errors
+
+      - name: Build Hex package
+        run: mix hex.build
+
+  test:
+    name: Test (OTP ${{ matrix.otp }})
+
+    runs-on: ubuntu-26.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - otp: "27"
+            elixir: "1.18"
+          - otp: "28"
+            elixir: "1.19"
+          - otp: "29"
+            elixir: "1.20"
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+
+      - name: Cache deps and _build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ runner.os }}-otp-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-otp-${{ matrix.otp }}-
+
+      - name: Get deps
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Run tests
+        run: mix test
