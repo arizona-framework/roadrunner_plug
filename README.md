@@ -21,12 +21,13 @@ deps if you need stability across upgrades.
 
 ## Installation
 
-Add `roadrunner_plug` to your deps in `mix.exs`:
+Add `roadrunner_plug` to your deps in `mix.exs` (latest version on
+[Hex](https://hex.pm/packages/roadrunner_plug)):
 
 ```elixir
 def deps do
   [
-    {:roadrunner_plug, "~> 0.1"}
+    {:roadrunner_plug, ">= 0.0.0"}
   ]
 end
 ```
