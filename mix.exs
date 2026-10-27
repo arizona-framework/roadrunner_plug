@@ -1,7 +1,7 @@
 defmodule Roadrunner.Plug.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/arizona-framework/roadrunner_plug"
 
   def project do
@@ -37,9 +37,8 @@ defmodule Roadrunner.Plug.MixProject do
       # dependency, so starting Phoenix from here would start this app
       # inside itself.
       {:phoenix, "~> 1.7", only: :test, runtime: false},
-      # Until WebSockAdapter releases its Roadrunner support.
-      {:websock_adapter,
-       github: "phoenixframework/websock_adapter", only: :test, runtime: false, override: true},
+      # The first release that knows Roadrunner, for the socket test.
+      {:websock_adapter, "~> 0.7", only: :test, runtime: false},
       {:jason, "~> 1.4", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
     ]
