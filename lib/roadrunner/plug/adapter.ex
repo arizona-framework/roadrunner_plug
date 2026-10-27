@@ -16,7 +16,10 @@ defmodule Roadrunner.Plug.Adapter do
   @spec conn(:roadrunner_req.request()) :: Plug.Conn.t()
   def conn(req) do
     scheme = :roadrunner_req.scheme(req)
-    {host, port} = host_port(:roadrunner_req.header("host", req), scheme)
+    # Header names come lowercased, so the lookup skips `header/2`'s
+    # lowercasing of the name.
+    headers = :roadrunner_req.headers(req)
+    {host, port} = host_port(List.keyfind(headers, "host", 0), scheme)
     path = :roadrunner_req.path(req)
 
     %Plug.Conn{
@@ -28,7 +31,7 @@ defmodule Roadrunner.Plug.Adapter do
       port: port,
       query_string: :roadrunner_req.qs(req),
       remote_ip: :roadrunner_req.client_ip(req) || {0, 0, 0, 0},
-      req_headers: :roadrunner_req.headers(req),
+      req_headers: headers,
       request_path: path,
       scheme: scheme
     }
@@ -48,9 +51,32 @@ defmodule Roadrunner.Plug.Adapter do
     end
   end
 
-  defp host_port(:undefined, scheme), do: {"", default_port(scheme)}
+  # A plain `name` or `name:port` splits here; anything else (an IPv6
+  # literal, userinfo, an empty name or port) goes through `URI.parse/1`,
+  # whose regexes are compiled on every call on OTP 28.
+  defp host_port(nil, scheme), do: {"", default_port(scheme)}
+  defp host_port({_name, host}, scheme), do: host_port(host, 0, host, scheme)
 
-  defp host_port(host, scheme) do
+  defp host_port(<<?:, port::binary>>, len, host, scheme) when len > 0 do
+    case digits?(port) do
+      true -> {binary_part(host, 0, len), String.to_integer(port)}
+      false -> uri_host_port(host, scheme)
+    end
+  end
+
+  defp host_port(<<c, _::binary>>, _len, host, scheme) when c in ~c":@/?#[]",
+    do: uri_host_port(host, scheme)
+
+  defp host_port(<<_, rest::binary>>, len, host, scheme),
+    do: host_port(rest, len + 1, host, scheme)
+
+  defp host_port(<<>>, len, host, scheme) when len > 0, do: {host, default_port(scheme)}
+  defp host_port(<<>>, _len, host, scheme), do: uri_host_port(host, scheme)
+
+  defp digits?(<<c, rest::binary>>) when c in ?0..?9, do: rest == "" or digits?(rest)
+  defp digits?(_port), do: false
+
+  defp uri_host_port(host, scheme) do
     case URI.parse("//" <> host) do
       %URI{host: h, port: nil} when is_binary(h) -> {ip_literal(h), default_port(scheme)}
       %URI{host: h, port: p} when is_binary(h) -> {ip_literal(h), p}
