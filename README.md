@@ -67,10 +67,8 @@ The `:http` and `:https` settings work as in a generated Phoenix app.
 - WebSocket upgrades through `Plug.Conn.upgrade_adapter/3` with a `WebSock`
   handler, over HTTP/1.1
 - Phoenix endpoints, including the code reloader
-
-Phoenix Channels and LiveView reach WebSockets through `WebSockAdapter`,
-which only knows the servers it lists, so they need Roadrunner to be added
-there first.
+- Phoenix Channels and LiveView over WebSocket, with `websock_adapter` 0.7
+  or later (`mix deps.update websock_adapter` in an existing app)
 
 ## Sponsors
 

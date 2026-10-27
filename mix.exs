@@ -1,7 +1,7 @@
 defmodule Roadrunner.Plug.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/arizona-framework/roadrunner_plug"
 
   def project do
@@ -32,7 +32,13 @@ defmodule Roadrunner.Plug.MixProject do
       {:roadrunner, "~> 0.12"},
       {:plug, "~> 1.16"},
       {:websock, "~> 0.5"},
-      {:phoenix, "~> 1.7", only: :test},
+      # Phoenix stays out of this app's runtime applications, and the tests
+      # start it: WebSockAdapter lists roadrunner_plug as an optional
+      # dependency, so starting Phoenix from here would start this app
+      # inside itself.
+      {:phoenix, "~> 1.7", only: :test, runtime: false},
+      # The first release that knows Roadrunner, for the socket test.
+      {:websock_adapter, "~> 0.7", only: :test, runtime: false},
       {:jason, "~> 1.4", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
     ]

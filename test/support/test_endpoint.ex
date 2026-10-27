@@ -5,6 +5,8 @@ defmodule Roadrunner.Plug.TestEndpoint do
 
   use Phoenix.Endpoint, otp_app: :roadrunner_plug
 
+  socket("/socket", Roadrunner.Plug.TestSocket, websocket: [check_origin: false])
+
   plug(Plug.Parsers, parsers: [:urlencoded], pass: ["*/*"])
   plug(:respond)
 
