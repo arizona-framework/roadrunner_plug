@@ -6,10 +6,9 @@ pure-Erlang HTTP/1.1, HTTP/2, HTTP/3 and WebSocket server.
 
 ## 🚧 Status
 
-Roadrunner.Plug is in early development and not on Hex yet. It needs
-Roadrunner features that are on its `main` branch but not in a release, so
-it depends on a local checkout for now. The API may change between minor
-versions.
+Roadrunner.Plug is in `0.x`. The core is functional and covered by tests,
+but the API may change between minor versions. Pin an exact version in your
+deps if you need stability across upgrades.
 
 ## Plug
 

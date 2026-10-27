@@ -21,10 +21,7 @@ defmodule Roadrunner.Plug.MixProject do
 
   defp deps do
     [
-      # The send shape, conn_info and the WebSocket upgrade options are on
-      # roadrunner's main branch, not in a release yet. `ROADRUNNER_PATH`
-      # points at another checkout (a worktree with unmerged branches).
-      {:roadrunner, path: System.get_env("ROADRUNNER_PATH", "../roadrunner"), manager: :rebar3},
+      {:roadrunner, "~> 0.12"},
       {:plug, "~> 1.16"},
       {:websock, "~> 0.5"},
       {:phoenix, "~> 1.7", only: :test},
