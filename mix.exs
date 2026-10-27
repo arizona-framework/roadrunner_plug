@@ -43,10 +43,13 @@ defmodule Roadrunner.Plug.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
+        "Docs" => "https://hexdocs.pm/roadrunner_plug",
+        "Issues" => "#{@source_url}/issues",
+        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md",
         "Roadrunner" => "https://github.com/arizona-framework/roadrunner",
         "Sponsor" => "https://github.com/sponsors/williamthome"
       },
-      files: ~w(lib mix.exs README.md LICENSE.md .formatter.exs)
+      files: ~w(lib mix.exs README.md LICENSE.md CHANGELOG.md .formatter.exs)
     ]
   end
 
