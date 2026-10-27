@@ -30,6 +30,7 @@ defmodule Roadrunner.Plug.Handler do
         :erlang.raise(kind, reason, __STACKTRACE__)
     else
       conn ->
+        :ok = maybe_upgrade(conn)
         :ok = Adapter.flush_sent()
         Adapter.request(conn)
     end
@@ -55,6 +56,9 @@ defmodule Roadrunner.Plug.Handler do
   catch
     :error, :already_sent -> :ok
   end
+
+  defp maybe_upgrade(%Plug.Conn{state: :upgraded} = conn), do: Adapter.upgrade(conn)
+  defp maybe_upgrade(%Plug.Conn{}), do: :ok
 
   # As Plug's other servers: a conn the plug set but did not send goes out
   # now, one with nothing set is a bug.

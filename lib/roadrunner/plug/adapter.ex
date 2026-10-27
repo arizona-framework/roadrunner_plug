@@ -3,8 +3,10 @@ defmodule Roadrunner.Plug.Adapter do
   # The `Plug.Conn.Adapter` over a roadrunner request. The plug runs inside
   # a `{send, ...}` response's fun (`Roadrunner.Plug.Handler`), so each
   # callback sends with `:roadrunner_send` as the plug calls it. The payload
-  # carries the latest request (a body read moves it on) and, once a chunked
-  # response starts, its `Send` fun.
+  # carries the latest request (a body read moves it on), once a chunked
+  # response starts its `Send` fun (`:no_body` when the response may carry
+  # none), and a WebSocket upgrade the plug asked for, which
+  # `Roadrunner.Plug.Handler` performs once the plug returns.
 
   @behaviour Plug.Conn.Adapter
 
@@ -18,7 +20,7 @@ defmodule Roadrunner.Plug.Adapter do
     path = :roadrunner_req.path(req)
 
     %Plug.Conn{
-      adapter: {__MODULE__, %{req: req, send: nil}},
+      adapter: {__MODULE__, %{req: req, send: nil, upgrade: nil}},
       host: host,
       method: :roadrunner_req.method(req),
       owner: self(),
@@ -50,10 +52,16 @@ defmodule Roadrunner.Plug.Adapter do
 
   defp host_port(host, scheme) do
     case URI.parse("//" <> host) do
-      %URI{host: h, port: nil} when is_binary(h) -> {h, default_port(scheme)}
-      %URI{host: h, port: p} when is_binary(h) -> {h, p}
+      %URI{host: h, port: nil} when is_binary(h) -> {ip_literal(h), default_port(scheme)}
+      %URI{host: h, port: p} when is_binary(h) -> {ip_literal(h), p}
       _ -> {host, default_port(scheme)}
     end
+  end
+
+  # An IPv6 literal keeps its brackets, so `Plug.Conn.request_url/1` builds
+  # a valid URL from `host` and `port`.
+  defp ip_literal(host) do
+    if String.contains?(host, ":"), do: "[" <> host <> "]", else: host
   end
 
   defp default_port(:http), do: 80
@@ -67,11 +75,20 @@ defmodule Roadrunner.Plug.Adapter do
 
   @impl true
   def send_file(%{req: req} = payload, status, headers, path, offset, length) do
+    size = File.stat!(path).size
+
     length =
       case length do
-        :all -> File.stat!(path).size - offset
+        :all -> size - offset
         n when is_integer(n) -> n
       end
+
+    # Checked before any header goes out: a range past the end would send a
+    # `content-length` the file can't fill.
+    if offset + length > size do
+      raise ArgumentError,
+            "cannot send #{length} bytes from offset #{offset}: #{path} has #{size}"
+    end
 
     headers = headers |> with_content_length(length) |> wire_headers(req)
     _ = :roadrunner_send.file(status, headers, {path, offset, length}, req)
@@ -100,14 +117,37 @@ defmodule Roadrunner.Plug.Adapter do
 
   @impl true
   def send_chunked(%{req: req} = payload, status, headers) do
-    case :roadrunner_send.stream(status, wire_headers(headers, req), req) do
-      {:ok, send} -> {:ok, nil, %{payload | send: send}}
-      {:error, _reason} -> {:ok, nil, payload}
+    # The body is chunked, so a `content-length` the plug set would contradict
+    # the framing (RFC 9112 §6.1).
+    headers = headers |> List.keydelete("content-length", 0) |> wire_headers(req)
+
+    if body_allowed?(:roadrunner_req.method(req), status) do
+      case :roadrunner_send.stream(status, headers, req) do
+        {:ok, send} -> {:ok, nil, %{payload | send: send}}
+        {:error, _reason} -> {:ok, nil, payload}
+      end
+    else
+      # HEAD, 204 and 304 carry no body: the head only, and `chunk/2` sends
+      # nothing.
+      _ = :roadrunner_send.reply(status, chunked_head(headers, req), "", req)
+      {:ok, nil, %{payload | send: :no_body}}
+    end
+  end
+
+  defp body_allowed?("HEAD", _status), do: false
+  defp body_allowed?(_method, status), do: status != 204 and status != 304
+
+  # A HEAD answer says how the GET would be framed: chunked, on HTTP/1.1.
+  defp chunked_head(headers, req) do
+    case :roadrunner_req.version(req) do
+      {1, 1} -> [{"transfer-encoding", "chunked"} | headers]
+      _other -> headers
     end
   end
 
   @impl true
   def chunk(%{send: nil}, _body), do: {:error, :closed}
+  def chunk(%{send: :no_body}, _body), do: :ok
   def chunk(%{send: send}, body), do: send.(body, :nofin)
 
   @impl true
@@ -119,11 +159,17 @@ defmodule Roadrunner.Plug.Adapter do
       {:more, data, req} -> {:more, IO.iodata_to_binary(data), %{payload | req: req}}
       # Over the listener's `max_content_length`: Plug's own "too large".
       {:error, :content_length_too_large} -> raise Plug.Parsers.RequestTooLargeError
+      # A body too slow to arrive: the `:timeout` Plug.Parsers answers 408.
+      {:error, reason} when reason in [:request_timeout, :slow_client] -> {:error, :timeout}
       {:error, _reason} = error -> error
     end
   end
 
   @impl true
+  # 100 belongs to roadrunner's `Expect: 100-continue` handling and 101 to
+  # an upgrade: neither is an interim response a plug sends.
+  def inform(_payload, status, _headers) when status < 102, do: {:error, :not_supported}
+
   def inform(%{req: req}, status, headers) do
     headers = for {name, value} <- headers, do: {to_string(name), to_string(value)}
 
@@ -134,27 +180,26 @@ defmodule Roadrunner.Plug.Adapter do
   end
 
   @impl true
-  def upgrade(%{req: req} = payload, :websocket, {websock, state, opts}) do
+  def upgrade(%{req: req} = payload, :websocket, {_websock, _state, _opts} = args) do
+    # Performed once the plug returns (`upgrade/1`), so the 101 carries the
+    # response headers the plug set by then, as Plug's other servers do.
     case :roadrunner_req.version(req) do
-      {1, _minor} ->
-        # A handshake roadrunner refuses is answered (400/426) already, so
-        # the conn is done either way.
-        _ =
-          :roadrunner_send.websocket(
-            Roadrunner.Plug.WebSock,
-            {websock, state},
-            Roadrunner.Plug.WebSock.upgrade_opts(opts),
-            req
-          )
-
-        {:ok, payload}
-
-      _http2_or_http3 ->
-        {:error, :not_supported}
+      {1, _minor} -> {:ok, %{payload | upgrade: args}}
+      _http2_or_http3 -> {:error, :not_supported}
     end
   end
 
   def upgrade(_payload, _protocol, _args), do: {:error, :not_supported}
+
+  @doc "Run the WebSocket upgrade an upgraded conn asked for."
+  @spec upgrade(Plug.Conn.t()) :: :ok
+  def upgrade(%Plug.Conn{resp_headers: headers, adapter: {__MODULE__, payload}}) do
+    %{req: req, upgrade: {websock, state, opts}} = payload
+    opts = opts |> Roadrunner.Plug.WebSock.upgrade_opts() |> Map.put(:headers, headers)
+    # A handshake roadrunner refuses is answered (400/426) already.
+    _ = :roadrunner_send.websocket(Roadrunner.Plug.WebSock, {websock, state}, opts, req)
+    :ok
+  end
 
   @impl true
   def push(_payload, _path, _headers), do: {:error, :not_supported}

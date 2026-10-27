@@ -108,6 +108,66 @@ defmodule Roadrunner.PlugTest do
     assert info.sock_data == %{address: {127, 0, 0, 1}, port: port}
   end
 
+  test "HEAD on a chunked response sends the head only", %{port: port} do
+    response = raw(port, "HEAD /chunked HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n")
+    assert response =~ "transfer-encoding: chunked"
+    assert String.ends_with?(response, "\r\n\r\n")
+  end
+
+  test "a chunked response drops a content-length the plug set", %{port: port} do
+    # On the wire: `:httpc` decodes chunked bodies and reports a length.
+    response = raw(port, "GET /chunked-cl HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n")
+    assert response =~ "transfer-encoding: chunked"
+    refute response =~ "content-length"
+  end
+
+  test "keeps the brackets of an IPv6 host", %{port: port} do
+    _ = raw(port, "GET /info HTTP/1.1\r\nhost: [::1]:4000\r\nconnection: close\r\n\r\n")
+    assert_receive {:info, %{host: "[::1]", port: 4000}}
+  end
+
+  test "inform(100) is ignored, not a crash", %{port: port} do
+    assert {200, _, "ok"} = get(port, "/inform-100")
+  end
+
+  @tag :capture_log
+  test "a file range past the end fails before any header", %{port: port} do
+    assert {500, _, _} = get(port, "/file-past-end")
+  end
+
+  test "the 101 carries the response headers the plug set", %{port: port} do
+    {:ok, sock} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
+
+    :ok =
+      :gen_tcp.send(sock, [
+        "GET /ws-proto HTTP/1.1\r\nhost: x\r\nupgrade: websocket\r\nconnection: Upgrade\r\n",
+        "sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\nsec-websocket-version: 13\r\n",
+        "sec-websocket-protocol: chat\r\n\r\n"
+      ])
+
+    {:ok, "HTTP/1.1 101" <> _ = head} = recv_head(sock, "")
+    assert head =~ "sec-websocket-protocol: chat"
+  end
+
+  describe "options" do
+    test "https defaults to port 4040, http to 4000" do
+      assert %{port: 4000} = Roadrunner.Plug.listener_opts(plug: TestPlug)
+
+      assert %{port: 4040} =
+               Roadrunner.Plug.listener_opts(plug: TestPlug, scheme: :https, tls: [])
+    end
+
+    test "a string port is accepted" do
+      assert %{port: 4001} = Roadrunner.Plug.listener_opts(plug: TestPlug, port: "4001")
+    end
+
+    test "an unknown http option is refused" do
+      assert_raise ArgumentError, ~r/:transport_options/, fn ->
+        Roadrunner.Plug.listener_opts(plug: TestPlug, transport_options: [])
+      end
+    end
+  end
+
   describe "WebSocket" do
     test "echoes through a WebSock handler", %{port: port} do
       sock = ws_connect(port)

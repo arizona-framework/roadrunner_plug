@@ -35,6 +35,29 @@ defmodule Roadrunner.Plug.TestPlug do
     conn
   end
 
+  def call(%{path_info: ["chunked-cl"]} = conn, _opts) do
+    conn = conn |> put_resp_header("content-length", "5") |> send_chunked(200)
+    {:ok, conn} = chunk(conn, "hello")
+    conn
+  end
+
+  def call(%{path_info: ["inform-100"]} = conn, _opts) do
+    conn |> inform(100) |> send_resp(200, "ok")
+  end
+
+  def call(%{path_info: ["file-past-end"]} = conn, opts) do
+    send_file(conn, 200, Keyword.fetch!(opts, :file), 4, 100)
+  end
+
+  def call(%{path_info: ["ws-proto"]} = conn, opts) do
+    conn
+    |> put_resp_header("sec-websocket-protocol", "chat")
+    |> upgrade_adapter(
+      :websocket,
+      {Roadrunner.Plug.TestWebSock, Keyword.fetch!(opts, :report), []}
+    )
+  end
+
   def call(%{path_info: ["file"]} = conn, opts) do
     send_file(conn, 200, Keyword.fetch!(opts, :file), 2, 4)
   end

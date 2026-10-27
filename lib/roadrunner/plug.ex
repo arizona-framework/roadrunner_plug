@@ -12,8 +12,9 @@ defmodule Roadrunner.Plug do
 
     * `:plug` - the plug to run, as `Module` or `{Module, opts}`. Its
       `init/1` runs once, when the listener starts.
-    * `:port` - the TCP port to listen on (default `4000`; `0` lets the
-      system pick one, see `port/1`).
+    * `:port` - the TCP port to listen on (default `4000` for `:http` and
+      `4040` for `:https`, as Phoenix's other adapters; `0` lets the system
+      pick one, see `port/1`). A string such as `"4000"` is accepted.
     * `:ip` - the local address to bind (default: all interfaces).
     * `:scheme` - `:http` (default) or `:https`.
     * `:name` - the listener's registered name (default derived from the
@@ -60,15 +61,35 @@ defmodule Roadrunner.Plug do
   @doc false
   @spec listener_opts(keyword()) :: map()
   def listener_opts(opts) do
+    scheme = Keyword.get(opts, :scheme, :http)
+    :ok = check_keys(scheme, opts)
+
     %{
-      port: Keyword.get(opts, :port, 4000),
+      port: port_opt(Keyword.get(opts, :port, default_port(scheme))),
       routes: {Roadrunner.Plug.Handler, plug(opts)},
       body_buffering: :manual,
       max_content_length: @no_body_cap
     }
     |> put_opt(opts, :ip)
-    |> put_tls(Keyword.get(opts, :scheme, :http), opts)
+    |> put_tls(scheme, opts)
     |> Map.merge(Keyword.get(opts, :roadrunner, %{}))
+  end
+
+  defp default_port(:http), do: 4000
+  defp default_port(:https), do: 4040
+
+  defp port_opt(port) when is_integer(port), do: port
+  defp port_opt(port) when is_binary(port), do: String.to_integer(port)
+
+  # Under `:https` any other key is a TLS option, which `:ssl` validates;
+  # under `:http` it is a typo or another server's option.
+  defp check_keys(:https, _opts), do: :ok
+
+  defp check_keys(:http, opts) do
+    case Keyword.keys(opts) -- @own_keys do
+      [] -> :ok
+      unknown -> raise ArgumentError, "unknown Roadrunner.Plug options: #{inspect(unknown)}"
+    end
   end
 
   defp plug(opts) do
