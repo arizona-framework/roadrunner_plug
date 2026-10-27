@@ -50,13 +50,10 @@ defmodule Roadrunner.PlugTest do
       id: :capped
     )
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert {413, _, _} = post(Roadrunner.Plug.port(name), "/size", "too long")
-      end)
-
+    Roadrunner.Plug.LogForwarder.attach()
+    assert {413, _, _} = post(Roadrunner.Plug.port(name), "/size", "too long")
     # A 4xx is the client's: no crash is logged.
-    assert log == ""
+    refute_received {:logged, {:report, %{msg: "roadrunner handler crashed"}}}
   end
 
   test "reads the body in pieces of the asked length", %{port: port} do
@@ -79,14 +76,20 @@ defmodule Roadrunner.PlugTest do
     assert {201, _, "set"} = get(port, "/set-only")
   end
 
+  @tag :capture_log
   test "a plug that sends nothing is a 500, logged", %{port: port} do
-    log = ExUnit.CaptureLog.capture_log(fn -> assert {500, _, _} = get(port, "/nothing") end)
-    assert log =~ "NotSentError"
+    Roadrunner.Plug.LogForwarder.attach()
+    assert {500, _, _} = get(port, "/nothing")
+    assert_receive {:logged, {:report, %{reason: %Plug.Conn.NotSentError{}}}}, 5000
   end
 
+  @tag :capture_log
   test "a 4xx exception answers its status without logging a crash", %{port: port} do
-    log = ExUnit.CaptureLog.capture_log(fn -> assert {400, _, _} = get(port, "/bad-request") end)
-    assert log == ""
+    Roadrunner.Plug.LogForwarder.attach()
+    assert {400, _, _} = get(port, "/bad-request")
+    # The connection closed after the request ended: a crash report would
+    # have been sent by then.
+    refute_received {:logged, {:report, %{msg: "roadrunner handler crashed"}}}
   end
 
   test "sends 103 Early Hints before the response", %{port: port} do
