@@ -1,14 +1,22 @@
 defmodule Roadrunner.Plug.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/arizona-framework/roadrunner_plug"
+
   def project do
     [
       app: :roadrunner_plug,
-      version: "0.1.0",
-      elixir: "~> 1.15",
+      version: @version,
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      description: "Run Plug and Phoenix apps on the Roadrunner HTTP server.",
+      package: package(),
+      docs: docs(),
+      name: "Roadrunner.Plug",
+      source_url: @source_url
     ]
   end
 
@@ -25,7 +33,29 @@ defmodule Roadrunner.Plug.MixProject do
       {:plug, "~> 1.16"},
       {:websock, "~> 0.5"},
       {:phoenix, "~> 1.7", only: :test},
-      {:jason, "~> 1.4", only: :test}
+      {:jason, "~> 1.4", only: :test},
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Roadrunner" => "https://github.com/arizona-framework/roadrunner",
+        "Sponsor" => "https://github.com/sponsors/williamthome"
+      },
+      files: ~w(lib mix.exs README.md LICENSE.md .formatter.exs)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "LICENSE.md"],
+      source_ref: @version,
+      source_url: @source_url
     ]
   end
 end

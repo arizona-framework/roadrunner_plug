@@ -1,14 +1,35 @@
 # Roadrunner.Plug
 
+[![CI](https://github.com/arizona-framework/roadrunner_plug/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/arizona-framework/roadrunner_plug/actions/workflows/ci.yml)
+[![Hex.pm](https://img.shields.io/hexpm/v/roadrunner_plug.svg)](https://hex.pm/packages/roadrunner_plug)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/roadrunner_plug/)
+[![License](https://img.shields.io/hexpm/l/roadrunner_plug.svg)](https://github.com/arizona-framework/roadrunner_plug/blob/main/LICENSE.md)
+
 Run [Plug](https://hexdocs.pm/plug) and [Phoenix](https://hexdocs.pm/phoenix)
 apps on [Roadrunner](https://github.com/arizona-framework/roadrunner), the
 pure-Erlang HTTP/1.1, HTTP/2, HTTP/3 and WebSocket server.
+
+## Requirements
+
+Requires **OTP 27+** and **Elixir 1.18+**.
 
 ## 🚧 Status
 
 Roadrunner.Plug is in `0.x`. The core is functional and covered by tests,
 but the API may change between minor versions. Pin an exact version in your
 deps if you need stability across upgrades.
+
+## Installation
+
+Add `roadrunner_plug` to your deps in `mix.exs`:
+
+```elixir
+def deps do
+  [
+    {:roadrunner_plug, "~> 0.1"}
+  ]
+end
+```
 
 ## Plug
 
@@ -49,6 +70,22 @@ The `:http` and `:https` settings work as in a generated Phoenix app.
 Phoenix Channels and LiveView reach WebSockets through `WebSockAdapter`,
 which only knows the servers it lists, so they need Roadrunner to be added
 there first.
+
+## Sponsors
+
+Roadrunner.Plug is open source and maintained on personal time. If you or your company find it useful,
+consider [sponsoring](https://github.com/sponsors/williamthome).
+
+I also accept coffees ☕
+
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/williamthome)
+
+<a href="https://github.com/sponsors/williamthome">
+  <img
+    src="https://raw.githubusercontent.com/williamthome/williamthome/sponsorkit/sponsors.svg"
+    alt="Sponsors"
+  />
+</a>
 
 ## License
 
