@@ -98,7 +98,8 @@ defmodule Roadrunner.Plug do
 
   defp plug_ssl(ssl_opts) do
     case Plug.SSL.configure(ssl_opts) do
-      {:ok, tls} -> tls
+      # `:otp_app` only located the files; `:ssl` refuses unknown options.
+      {:ok, tls} -> Keyword.delete(tls, :otp_app)
       {:error, message} -> raise ArgumentError, "could not configure TLS: " <> message
     end
   end

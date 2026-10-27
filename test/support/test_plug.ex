@@ -49,6 +49,11 @@ defmodule Roadrunner.Plug.TestPlug do
 
   def call(%{path_info: ["nothing"]} = conn, _opts), do: conn
 
+  def call(%{path_info: ["upper"]} = conn, _opts) do
+    # Plug only checks header case in tests: set one as production code may.
+    %{conn | resp_headers: [{"X-Upper", "1"} | conn.resp_headers]} |> send_resp(200, "upper")
+  end
+
   def call(%{path_info: ["hints"]} = conn, _opts) do
     conn
     |> inform(103, [{"link", "</a.css>; rel=preload"}])
