@@ -53,13 +53,15 @@ defmodule Roadrunner.Plug.Adapter do
 
   # A plain `name` or `name:port` splits here; anything else (an IPv6
   # literal, userinfo, an empty name or port) goes through `URI.parse/1`,
-  # whose regexes are compiled on every call on OTP 28.
+  # whose regexes are compiled on every call on OTP 28. A port above 65535
+  # is no port, so the scheme's default applies, as `URI.parse/1` does
+  # from Elixir 1.18.6.
   defp host_port(nil, scheme), do: {"", default_port(scheme)}
   defp host_port({_name, host}, scheme), do: host_port(host, 0, host, scheme)
 
   defp host_port(<<?:, port::binary>>, len, host, scheme) when len > 0 do
     case digits?(port) do
-      true -> {binary_part(host, 0, len), String.to_integer(port)}
+      true -> {binary_part(host, 0, len), port_or_default(String.to_integer(port), scheme)}
       false -> uri_host_port(host, scheme)
     end
   end
@@ -79,7 +81,7 @@ defmodule Roadrunner.Plug.Adapter do
   defp uri_host_port(host, scheme) do
     case URI.parse("//" <> host) do
       %URI{host: h, port: nil} when is_binary(h) -> {ip_literal(h), default_port(scheme)}
-      %URI{host: h, port: p} when is_binary(h) -> {ip_literal(h), p}
+      %URI{host: h, port: p} when is_binary(h) -> {ip_literal(h), port_or_default(p, scheme)}
       _ -> {host, default_port(scheme)}
     end
   end
@@ -89,6 +91,9 @@ defmodule Roadrunner.Plug.Adapter do
   defp ip_literal(host) do
     if String.contains?(host, ":"), do: "[" <> host <> "]", else: host
   end
+
+  defp port_or_default(port, _scheme) when port <= 65535, do: port
+  defp port_or_default(_port, scheme), do: default_port(scheme)
 
   defp default_port(:http), do: 80
   defp default_port(:https), do: 443
