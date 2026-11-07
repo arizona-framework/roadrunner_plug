@@ -68,7 +68,7 @@ The `:http` and `:https` settings work as in a generated Phoenix app.
   handler, over HTTP/1.1
 - Phoenix endpoints, including the code reloader
 - Phoenix Channels and LiveView over WebSocket, with `websock_adapter` 0.7
-  or later and Phoenix 1.8.13 or later, the first to accept it
+  or later and Phoenix 1.8.9 or later, the first to accept it
   (`mix deps.update phoenix websock_adapter` in an existing app)
 
 ## Sponsors
