@@ -16,11 +16,18 @@ defmodule Roadrunner.Plug.AdapterTest do
 
   # What `URI.parse/1` makes of a Host value, an IPv6 literal kept in its
   # brackets as the conn's `host` needs for `Plug.Conn.request_url/1`.
+  # Elixir 1.18.6 and later parse a port above 65535 as no port; earlier
+  # versions keep it, so the reference applies the newer rule itself.
   defp uri_host_port(host, default) do
     case URI.parse("//" <> host) do
-      %URI{host: h, port: nil} when is_binary(h) -> {bracketed(h), default}
-      %URI{host: h, port: p} when is_binary(h) -> {bracketed(h), p}
-      _ -> {host, default}
+      %URI{host: h, port: p} when is_binary(h) and (p == nil or p > 65535) ->
+        {bracketed(h), default}
+
+      %URI{host: h, port: p} when is_binary(h) ->
+        {bracketed(h), p}
+
+      _ ->
+        {host, default}
     end
   end
 
@@ -48,6 +55,9 @@ defmodule Roadrunner.Plug.AdapterTest do
       "localhost:4000",
       "Example.COM:0012",
       "h:99999",
+      "h:65535",
+      "h:65536",
+      "u@h:70000",
       "h:",
       "h:abc",
       "h:+1",
