@@ -9,7 +9,7 @@ defmodule Roadrunner.Plug.Handler do
   alias Roadrunner.Plug.Adapter
 
   @impl true
-  def init_route({plug, opts, compress}), do: {plug, plug.init(opts), compress}
+  def init_route({plug, opts, settings}), do: {plug, plug.init(opts), settings}
 
   @impl true
   def handle(req), do: {{:send, [], &__MODULE__.run/1}, req}
@@ -17,10 +17,10 @@ defmodule Roadrunner.Plug.Handler do
   @doc false
   @spec run(:roadrunner_req.request()) :: :roadrunner_req.request()
   def run(req) do
-    {plug, opts, compress} = :roadrunner_req.state(req)
+    {plug, opts, settings} = :roadrunner_req.state(req)
 
     try do
-      req |> Adapter.conn(compress) |> plug.call(opts) |> maybe_send()
+      req |> Adapter.conn(settings) |> plug.call(opts) |> maybe_send()
     catch
       kind, reason ->
         # As Plug's other servers: answer with the exception's status

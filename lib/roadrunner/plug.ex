@@ -98,9 +98,11 @@ defmodule Roadrunner.Plug do
     end
   end
 
+  # The plug and its options, and the adapter's own settings as a map, so a
+  # new setting is a new key rather than another argument.
   defp route_state(opts) do
     {module, plug_opts} = plug(opts)
-    {module, plug_opts, compress(opts)}
+    {module, plug_opts, %{compress: compress(opts)}}
   end
 
   defp compress(opts) do

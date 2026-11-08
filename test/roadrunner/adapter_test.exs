@@ -13,7 +13,7 @@ defmodule Roadrunner.Plug.AdapterTest do
         scheme: scheme,
         peer: {{127, 0, 0, 1}, 5000}
       },
-      true
+      %{compress: true}
     )
   end
 

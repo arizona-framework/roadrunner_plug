@@ -14,9 +14,12 @@ defmodule Roadrunner.Plug.Adapter do
 
   @already_sent {:plug_conn, :sent}
 
-  @doc "The `%Plug.Conn{}` for a roadrunner request."
-  @spec conn(:roadrunner_req.request(), boolean()) :: Plug.Conn.t()
-  def conn(req, compress) do
+  @typedoc "The adapter's settings from the listener's options (`Roadrunner.Plug`)."
+  @type settings :: %{compress: boolean()}
+
+  @doc "The `%Plug.Conn{}` for a roadrunner request, with the adapter's `settings`."
+  @spec conn(:roadrunner_req.request(), settings()) :: Plug.Conn.t()
+  def conn(req, %{compress: compress}) do
     scheme = :roadrunner_req.scheme(req)
     # Header names come lowercased, so the lookup skips `header/2`'s
     # lowercasing of the name.
