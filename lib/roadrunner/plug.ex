@@ -19,6 +19,12 @@ defmodule Roadrunner.Plug do
     * `:scheme` - `:http` (default) or `:https`.
     * `:name` - the listener's registered name (default derived from the
       plug module).
+    * `:compress` - compress responses with `gzip` or `deflate` when the
+      request's `Accept-Encoding` allows it (default `true`): bodies sent with
+      `send_resp/3` of at least 860 bytes, and every chunked response, with
+      the rules of `:roadrunner_compress`. A response that already has a
+      `content-encoding` is sent as it is, and files sent with `send_file/3`
+      are not compressed.
     * `:roadrunner` - any other `:roadrunner_listener` option, as a map
       (`protocols`, `ws`, `max_clients`, ...). Request bodies are read on
       demand (`body_buffering: :manual`) with no listener-wide size cap, so
@@ -56,7 +62,7 @@ defmodule Roadrunner.Plug do
   # Plug leaves body limits to `Plug.Parsers` and `read_body/2`.
   @no_body_cap 0x7FFFFFFFFFFFFFFF
 
-  @own_keys [:plug, :port, :ip, :scheme, :tls, :name, :roadrunner, :display_plug]
+  @own_keys [:plug, :port, :ip, :scheme, :tls, :name, :roadrunner, :display_plug, :compress]
 
   @doc false
   @spec listener_opts(keyword()) :: map()
@@ -66,7 +72,7 @@ defmodule Roadrunner.Plug do
 
     %{
       port: port_opt(Keyword.get(opts, :port, default_port(scheme))),
-      routes: {Roadrunner.Plug.Handler, plug(opts)},
+      routes: {Roadrunner.Plug.Handler, route_state(opts)},
       body_buffering: :manual,
       max_content_length: @no_body_cap
     }
@@ -89,6 +95,21 @@ defmodule Roadrunner.Plug do
     case Keyword.keys(opts) -- @own_keys do
       [] -> :ok
       unknown -> raise ArgumentError, "unknown Roadrunner.Plug options: #{inspect(unknown)}"
+    end
+  end
+
+  defp route_state(opts) do
+    {module, plug_opts} = plug(opts)
+    {module, plug_opts, compress(opts)}
+  end
+
+  defp compress(opts) do
+    case Keyword.get(opts, :compress, true) do
+      compress when is_boolean(compress) ->
+        compress
+
+      other ->
+        raise ArgumentError, "the :compress option must be a boolean, got: #{inspect(other)}"
     end
   end
 

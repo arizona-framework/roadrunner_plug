@@ -4,14 +4,17 @@ defmodule Roadrunner.Plug.AdapterTest do
   alias Roadrunner.Plug.Adapter
 
   defp conn(headers, scheme \\ :http) do
-    Adapter.conn(%{
-      method: "GET",
-      target: "/a/b?x=1",
-      path: "/a/b",
-      headers: headers,
-      scheme: scheme,
-      peer: {{127, 0, 0, 1}, 5000}
-    })
+    Adapter.conn(
+      %{
+        method: "GET",
+        target: "/a/b?x=1",
+        path: "/a/b",
+        headers: headers,
+        scheme: scheme,
+        peer: {{127, 0, 0, 1}, 5000}
+      },
+      true
+    )
   end
 
   # What `URI.parse/1` makes of a Host value, an IPv6 literal kept in its
