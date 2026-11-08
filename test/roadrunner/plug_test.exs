@@ -162,6 +162,60 @@ defmodule Roadrunner.PlugTest do
     assert head =~ "sec-websocket-protocol: chat"
   end
 
+  describe "compression" do
+    @gzip [{~c"accept-encoding", ~c"gzip"}]
+
+    test "gzips a body sent with send_resp the request accepts it for", %{port: port} do
+      {200, headers, body} = get(port, "/big", @gzip)
+      assert {~c"content-encoding", ~c"gzip"} in headers
+      assert {~c"vary", ~c"Accept-Encoding"} in headers
+      assert {~c"content-length", ~c"#{byte_size(body)}"} in headers
+      assert :zlib.gunzip(body) == String.duplicate("roadrunner ", 200)
+    end
+
+    test "leaves a small body, and one the request does not accept, alone", %{port: port} do
+      {200, small_headers, "hello"} = get(port, "/hello", @gzip)
+      refute List.keymember?(small_headers, ~c"content-encoding", 0)
+      {200, headers, body} = get(port, "/big")
+      refute List.keymember?(headers, ~c"content-encoding", 0)
+      assert body == String.duplicate("roadrunner ", 200)
+    end
+
+    test "sends a body that already has a content-encoding as it is", %{port: port} do
+      {200, headers, body} = get(port, "/big-encoded", @gzip)
+      assert {~c"content-encoding", ~c"br"} in headers
+      assert body == String.duplicate("x", 2000)
+    end
+
+    test "gzips a chunked response, chunk by chunk", %{port: port} do
+      {200, headers, body} = get(port, "/chunked", @gzip)
+      assert {~c"content-encoding", ~c"gzip"} in headers
+      assert :zlib.gunzip(body) == "one-two"
+    end
+
+    test "compress: false sends every response uncompressed" do
+      name = :"roadrunner_plug_uncompressed_#{System.unique_integer([:positive])}"
+
+      start_supervised!(
+        {Roadrunner.Plug, plug: TestPlug, port: 0, name: name, compress: false},
+        id: :uncompressed
+      )
+
+      port = Roadrunner.Plug.port(name)
+
+      for path <- ["/big", "/chunked"] do
+        {200, headers, _body} = get(port, path, @gzip)
+        refute List.keymember?(headers, ~c"content-encoding", 0)
+      end
+    end
+
+    test "a :compress that is not a boolean is refused" do
+      assert_raise ArgumentError, ~r/:compress/, fn ->
+        Roadrunner.Plug.listener_opts(plug: TestPlug, compress: :yes)
+      end
+    end
+  end
+
   describe "options" do
     test "https defaults to port 4040, http to 4000" do
       assert %{port: 4000} = Roadrunner.Plug.listener_opts(plug: TestPlug)

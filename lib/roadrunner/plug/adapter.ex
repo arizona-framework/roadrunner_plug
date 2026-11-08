@@ -3,18 +3,23 @@ defmodule Roadrunner.Plug.Adapter do
   # The `Plug.Conn.Adapter` over a roadrunner request. The plug runs inside
   # a `{send, ...}` response's fun (`Roadrunner.Plug.Handler`), so each
   # callback sends with `:roadrunner_send` as the plug calls it. The payload
-  # carries the latest request (a body read moves it on), once a chunked
-  # response starts its `Send` fun (`:no_body` when the response may carry
-  # none), and a WebSocket upgrade the plug asked for, which
-  # `Roadrunner.Plug.Handler` performs once the plug returns.
+  # carries the latest request (a body read moves it on), whether responses
+  # are compressed (the `:compress` option), once a chunked response starts
+  # its `Send` fun (`:no_body` when the response may carry none) and the
+  # zlib stream compressing its chunks, and a WebSocket upgrade the plug
+  # asked for, which `Roadrunner.Plug.Handler` performs once the plug
+  # returns.
 
   @behaviour Plug.Conn.Adapter
 
   @already_sent {:plug_conn, :sent}
 
-  @doc "The `%Plug.Conn{}` for a roadrunner request."
-  @spec conn(:roadrunner_req.request()) :: Plug.Conn.t()
-  def conn(req) do
+  @typedoc "The adapter's settings from the listener's options (`Roadrunner.Plug`)."
+  @type settings :: %{compress: boolean()}
+
+  @doc "The `%Plug.Conn{}` for a roadrunner request, with the adapter's `settings`."
+  @spec conn(:roadrunner_req.request(), settings()) :: Plug.Conn.t()
+  def conn(req, %{compress: compress}) do
     scheme = :roadrunner_req.scheme(req)
     # Header names come lowercased, so the lookup skips `header/2`'s
     # lowercasing of the name.
@@ -23,7 +28,8 @@ defmodule Roadrunner.Plug.Adapter do
     path = :roadrunner_req.path(req)
 
     %Plug.Conn{
-      adapter: {__MODULE__, %{req: req, send: nil, upgrade: nil}},
+      adapter:
+        {__MODULE__, %{req: req, compress: compress, send: nil, deflate: nil, upgrade: nil}},
       host: host,
       method: :roadrunner_req.method(req),
       owner: self(),
@@ -40,6 +46,24 @@ defmodule Roadrunner.Plug.Adapter do
   @doc "The request the plug left, for the send fun to return."
   @spec request(Plug.Conn.t()) :: :roadrunner_req.request()
   def request(%Plug.Conn{adapter: {__MODULE__, %{req: req}}}), do: req
+
+  @doc """
+  End a compressed chunked response: the zlib stream's last bytes go out
+  with the final chunk. Without compression roadrunner ends the response
+  itself when the plug returns.
+  """
+  @spec finish_chunked(Plug.Conn.t()) :: :ok
+  def finish_chunked(%Plug.Conn{adapter: {__MODULE__, %{send: send, deflate: z}}})
+      when is_function(send, 2) and z != nil do
+    try do
+      _ = send.(:zlib.deflate(z, [], :finish), :fin)
+      :ok
+    after
+      :zlib.close(z)
+    end
+  end
+
+  def finish_chunked(%Plug.Conn{}), do: :ok
 
   @doc "Drop the `{:plug_conn, :sent}` Plug sends the owner per response."
   @spec flush_sent() :: :ok
@@ -99,10 +123,16 @@ defmodule Roadrunner.Plug.Adapter do
   defp default_port(:https), do: 443
 
   @impl true
-  def send_resp(%{req: req} = payload, status, headers, body) do
+  def send_resp(%{req: req, compress: compress} = payload, status, headers, body) do
+    {headers, body} = maybe_compress(compress, req, headers, body)
     _ = :roadrunner_send.reply(status, wire_headers(headers, req), body, req)
     {:ok, nil, payload}
   end
+
+  defp maybe_compress(true, req, headers, body),
+    do: :roadrunner_compress.buffered(req, headers, body)
+
+  defp maybe_compress(false, _req, headers, body), do: {headers, body}
 
   @impl true
   def send_file(%{req: req} = payload, status, headers, path, offset, length) do
@@ -147,14 +177,16 @@ defmodule Roadrunner.Plug.Adapter do
   end
 
   @impl true
-  def send_chunked(%{req: req} = payload, status, headers) do
+  def send_chunked(%{req: req, compress: compress} = payload, status, headers) do
     # The body is chunked, so a `content-length` the plug set would contradict
     # the framing (RFC 9112 §6.1).
     headers = headers |> List.keydelete("content-length", 0) |> wire_headers(req)
 
     if body_allowed?(:roadrunner_req.method(req), status) do
+      {headers, encoding} = stream_encoding(compress, req, headers)
+
       case :roadrunner_send.stream(status, headers, req) do
-        {:ok, send} -> {:ok, nil, %{payload | send: send}}
+        {:ok, send} -> {:ok, nil, %{payload | send: send, deflate: deflate_stream(encoding)}}
         {:error, _reason} -> {:ok, nil, payload}
       end
     else
@@ -164,6 +196,12 @@ defmodule Roadrunner.Plug.Adapter do
       {:ok, nil, %{payload | send: :no_body}}
     end
   end
+
+  defp stream_encoding(true, req, headers), do: :roadrunner_compress.stream_headers(req, headers)
+  defp stream_encoding(false, _req, headers), do: {headers, :none}
+
+  defp deflate_stream(:none), do: nil
+  defp deflate_stream(encoding), do: :roadrunner_compress.stream_deflate(encoding)
 
   defp body_allowed?("HEAD", _status), do: false
   defp body_allowed?(_method, status), do: status != 204 and status != 304
@@ -179,7 +217,11 @@ defmodule Roadrunner.Plug.Adapter do
   @impl true
   def chunk(%{send: nil}, _body), do: {:error, :closed}
   def chunk(%{send: :no_body}, _body), do: :ok
-  def chunk(%{send: send}, body), do: send.(body, :nofin)
+  def chunk(%{send: send, deflate: nil}, body), do: send.(body, :nofin)
+  # A sync flush sends what the chunk compressed to now, so the client gets
+  # each chunk as it is sent (server-sent events, progress), not when the
+  # stream's buffer fills.
+  def chunk(%{send: send, deflate: z}, body), do: send.(:zlib.deflate(z, body, :sync), :nofin)
 
   @impl true
   def read_req_body(%{req: req} = payload, opts) do

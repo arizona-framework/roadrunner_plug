@@ -56,11 +56,15 @@ config :my_app, MyAppWeb.Endpoint,
   url: [host: "localhost"]
 ```
 
-The `:http` and `:https` settings work as in a generated Phoenix app.
+The `:http` and `:https` settings work as in a generated Phoenix app, and
+take `Roadrunner.Plug`'s options, such as `compress: false`.
 
 ## What works
 
 - Responses: complete, chunked, files and `103 Early Hints`
+- Response compression: `gzip` or `deflate` per `Accept-Encoding`, for
+  complete bodies of 860 bytes or more and for chunked responses
+  (`compress: false` turns it off)
 - Request bodies read on demand, so `Plug.Parsers` sets the limits
 - `get_peer_data/1` (with the client's TLS certificate), `get_sock_data/1`,
   `get_ssl_data/1` and `get_http_protocol/1`

@@ -9,8 +9,9 @@ defmodule Roadrunner.PhoenixAdapter do
 
   The endpoint's `:http` and `:https` keyword lists are `Roadrunner.Plug`
   options: `:ip` and `:port` as in a generated Phoenix app, the TLS keys
-  (`:keyfile`, `:certfile`, ...) under `:https`, and `:roadrunner` for any
-  other listener option.
+  (`:keyfile`, `:certfile`, ...) under `:https`, `:compress` (on by
+  default) for response compression, and `:roadrunner` for any other
+  listener option.
   """
 
   @doc false

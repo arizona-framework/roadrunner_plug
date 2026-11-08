@@ -7,6 +7,16 @@ defmodule Roadrunner.Plug.TestPlug do
 
   def init(opts), do: opts
 
+  def call(%{path_info: ["big"]} = conn, _opts) do
+    send_resp(conn, 200, String.duplicate("roadrunner ", 200))
+  end
+
+  def call(%{path_info: ["big-encoded"]} = conn, _opts) do
+    conn
+    |> put_resp_header("content-encoding", "br")
+    |> send_resp(200, String.duplicate("x", 2000))
+  end
+
   def call(%{path_info: ["hello"]} = conn, _opts) do
     conn |> put_resp_header("x-test", "1") |> send_resp(200, "hello")
   end
