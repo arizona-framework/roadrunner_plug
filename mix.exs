@@ -20,8 +20,11 @@ defmodule Roadrunner.Plug.MixProject do
     ]
   end
 
+  # `:ssl` for `scheme: :https` (and a Phoenix endpoint's `:https`):
+  # `Plug.SSL.configure/1` and the TLS listener call into it, and Mix keeps
+  # only declared applications on the code path.
   def application do
-    [extra_applications: [:logger]]
+    [extra_applications: [:logger, :ssl]]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
