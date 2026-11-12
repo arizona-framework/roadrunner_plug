@@ -32,7 +32,7 @@ defmodule Roadrunner.Plug.MixProject do
 
   defp deps do
     [
-      {:roadrunner, "~> 0.14.2"},
+      {:roadrunner, "~> 0.16"},
       {:plug, "~> 1.16"},
       {:websock, "~> 0.5"},
       # Phoenix stays out of this app's runtime applications, and the tests
