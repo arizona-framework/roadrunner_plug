@@ -1,7 +1,7 @@
 defmodule Roadrunner.Plug.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.2.1"
   @source_url "https://github.com/arizona-framework/roadrunner_plug"
 
   def project do
@@ -32,7 +32,7 @@ defmodule Roadrunner.Plug.MixProject do
 
   defp deps do
     [
-      {:roadrunner, "~> 0.16"},
+      {:roadrunner, "0.16.1"},
       {:plug, "~> 1.16"},
       {:websock, "~> 0.5"},
       # Phoenix stays out of this app's runtime applications, and the tests
